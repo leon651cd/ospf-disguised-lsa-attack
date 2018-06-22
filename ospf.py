@@ -19,7 +19,7 @@ from argparse import ArgumentParser
 
 ROUTERS = 12
 OSPF_CONVERGENCE_TIME = 30
-CAPTURING_WINDOW = 120
+CAPTURING_WINDOW = 60
 
 SWITCH_NAME = 'switch'
 ATTACKER_NAME = 'atk1'
@@ -79,14 +79,16 @@ class SimpleTopo(Topo):
 		for i in xrange(5):
 			host = self.addNode('h%d-1' % (i+1))
 			hosts.append(host)
+
+		host = self.addNode(ATTACKER_NAME)
+		hosts.append(host)
 		
 		# adding links between routers
 		self.addLink('R1', 'R10')
 		self.addLink('R10', 'R11')
 		self.addLink('R11', 'R6')
-		self.addLink('R10', 'R12')
 		self.addLink('R12', 'R6')
-		self.addLink('R12', 'R2')
+		self.addLink('R7', 'R2')
 		self.addLink('R6', 'R7')
 		self.addLink('R6', 'R8')
 		self.addLink('R7', 'R4')
@@ -100,13 +102,19 @@ class SimpleTopo(Topo):
 			self.addSwitch(switch_name, cls=OVSSwitch)
 			self.addLink(switch_name, 'R%d' % (i+1))
 			self.addLink(switch_name, 'h%d-1' % (i+1))
+
+		switch_name = SWITCH_NAME + '10'
+		self.addSwitch(switch_name, cls=OVSSwitch)
+		self.addLink(switch_name, 'R10')
+		self.addLink(switch_name, 'R12')
+		self.addLink(switch_name, ATTACKER_NAME)
 		
 		return
 
 
 def getIP(hostname):
 	if hostname == ATTACKER_NAME:
-		return '10.0.4.66/24'
+		return '10.0.10.66/24'
 
 	subnet, idx = hostname.replace('h', '').split('-')
 
@@ -117,7 +125,7 @@ def getIP(hostname):
 
 def getGateway(hostname):
 	if hostname == ATTACKER_NAME:
-		return '10.0.4.254'
+		return '10.0.10.2'
 
 	subnet, idx = hostname.replace('h', '').split('-')
 
@@ -140,13 +148,23 @@ def launch_attack(attacker_host):
 	log("attack launched", 'red')
 
 
+def trace_routes(net):
+
+	for src in net.hosts:
+		for dst in net.hosts:
+			if src.name != dst.name and src.name != ATTACKER_NAME and dst.name != ATTACKER_NAME:
+				os.system('./traceroute.sh %s %s > /tmp/traceroute_%s_%s 2>&1 &' % (src.name, dst.name, src.name, dst.name))
+
+
 def main():
-	os.system("rm -f /tmp/R*.log /tmp/ospf-R?.pid /tmp/zebra-R?.pid 2> /dev/null")
-	os.system("rm -r logs/*stdout /tmp/h*tcpdump.cap 2> /dev/null")
-	os.system("rm -r /tmp/R?_tcpdump.cap /tmp/R?_tcpdump.log 2> /dev/null")
+	os.system("rm -f /tmp/R*.log /tmp/ospf-R*.pid /tmp/zebra-R*.pid 2> /dev/null")
+	os.system("rm -r logs/*stdout 2> /dev/null")
+	os.system("rm -r /tmp/*_tcpdump.cap /tmp/*_tcpdump.log /tmp/traceroute_* 2> /dev/null")
 	os.system("mn -c > /dev/null 2>&1")
 	os.system("killall -9 zebra ospfd > /dev/null 2>&1")
 	os.system('pgrep -f webserver.py | xargs kill -9')
+
+	#sys.exit(0)
 
 	net = Mininet(topo=SimpleTopo(), switch=Router)
 	net.start()
@@ -157,6 +175,9 @@ def main():
 	for host in net.hosts:
 		host.cmd("ifconfig %s-eth0 %s" % (host.name, getIP(host.name)))
 		host.cmd("route add default gw %s" % (getGateway(host.name)))
+
+		#host.setIP(getIP(host.name))
+		#host.setDefaultRoute(getGateway(host.name))
 
 		host.cmd("tcpdump -i %s-eth0 -w /tmp/%s_tcpdump.cap &" % (host.name, host.name))
 
@@ -184,7 +205,10 @@ def main():
 			router.waitOutput()
 			log("Starting zebra and ospfd on %s" % router.name)
 
-			router.cmd("tcpdump -i any -w /tmp/%s_tcpdump.cap 2>&1 > /tmp/%s_tcpdump.log &" % (router.name, router.name))
+			router.cmd("tcpdump -i %s-eth1 -w /tmp/%s-eth1_tcpdump.cap 2>&1 > /tmp/%s-eth1_tcpdump.log &" % (router.name, router.name, router.name))
+			router.cmd("tcpdump -i %s-eth2 -w /tmp/%s-eth2_tcpdump.cap 2>&1 > /tmp/%s-eth2_tcpdump.log &" % (router.name, router.name, router.name))
+			router.cmd("tcpdump -i %s-eth3 -w /tmp/%s-eth3_tcpdump.cap 2>&1 > /tmp/%s-eth3_tcpdump.log &" % (router.name, router.name, router.name))
+			router.cmd("tcpdump -i %s-eth4 -w /tmp/%s-eth4_tcpdump.cap 2>&1 > /tmp/%s-eth4_tcpdump.log &" % (router.name, router.name, router.name))
 	
 	#"""
 	log("Waiting for OSPF convergence (estimated %s)..." % \
@@ -193,14 +217,16 @@ def main():
 	#"""
 
 	#launch_attack(attacker_host)
+
+	#trace_routes(net)
+
+	os.system("./ping.sh")
 	
-	"""
+	#"""
 	log("Collecting data for %s seconds (estimated %s)..." % \
 		(CAPTURING_WINDOW, (datetime.datetime.now()+datetime.timedelta(0,CAPTURING_WINDOW)).strftime("%H:%M:%S")), 'cyan')
 	sleep(CAPTURING_WINDOW)
 	#"""
-
-	#os.system("./ping.sh")
 	
 	CLI(net)
 	net.stop()

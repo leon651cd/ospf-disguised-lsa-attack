@@ -115,16 +115,18 @@ def send_hello_messages(srcIP, dstIP, interval):
 		send(dbd_message_packet)
 
 
+def send_trigger_lsa():
+	pass
+
+
+def send_disguised_lsa():
+	pass
+
+
 def main():
-	raise Exception("attack not implemented")
+	send_trigger_lsa()
 
-	#send_hello_packet(SOURCE_ADDRESS, HELLO_DESTINATION_ADDRESS)
-	send_hello_packet(SOURCE_ADDRESS, DESTINATION_ADDRESS)
-
-	send_empty_dbd_messages(SOURCE_ADDRESS, DESTINATION_ADDRESS, 10, 2)
-
-	#send_hello_messages(SOURCE_ADDRESS, HELLO_DESTINATION_ADDRESS, 30)
-	send_hello_messages(SOURCE_ADDRESS, DESTINATION_ADDRESS, 30)
+	send_disguised_lsa()
 
 
 if __name__ == "__main__":
