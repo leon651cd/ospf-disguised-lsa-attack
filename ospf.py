@@ -18,8 +18,10 @@ from multiprocessing import Process
 from argparse import ArgumentParser
 
 ROUTERS = 12
-OSPF_CONVERGENCE_TIME = 30
-CAPTURING_WINDOW = 60
+ATTACK = 1
+COMMAND_LINE_INTERFACE = 1
+OSPF_CONVERGENCE_TIME = 60 * 0
+CAPTURING_WINDOW = 30 * 3
 
 SWITCH_NAME = 'switch'
 ATTACKER_NAME = 'atk1'
@@ -85,7 +87,6 @@ class SimpleTopo(Topo):
 		
 		# adding links between routers
 		self.addLink('R1', 'R10')
-		self.addLink('R10', 'R11')
 		self.addLink('R11', 'R6')
 		self.addLink('R12', 'R6')
 		self.addLink('R7', 'R2')
@@ -108,6 +109,12 @@ class SimpleTopo(Topo):
 		self.addLink(switch_name, 'R10')
 		self.addLink(switch_name, 'R12')
 		self.addLink(switch_name, ATTACKER_NAME)
+
+		switch_name = SWITCH_NAME + '7'
+		self.addSwitch(switch_name, cls=OVSSwitch)
+		self.addLink(switch_name, 'R10')
+		self.addLink(switch_name, 'R11')
+		self.addLink(switch_name, ATTACKER_NAME)
 		
 		return
 
@@ -124,9 +131,6 @@ def getIP(hostname):
 
 
 def getGateway(hostname):
-	if hostname == ATTACKER_NAME:
-		return '10.0.10.2'
-
 	subnet, idx = hostname.replace('h', '').split('-')
 
 	gw = '10.0.%s.254' % (subnet)
@@ -142,24 +146,16 @@ def startWebserver(net, hostname, text="Default web server"):
 def launch_attack(attacker_host):
 	log("launching attack", 'red')
 
-	attacker_host.popen("python attacker_attack.py > /tmp/%s_attacker_attack.log 2>&1" % ATTACKER_NAME, shell=True)
-	os.system('lxterminal -e "/bin/bash -c \'tail -f /tmp/%s_attacker_attack.log\'" > /dev/null 2>&1 &' % ATTACKER_NAME)
+	attacker_host.popen("python attacker_attack.py > /tmp/attacker_attack.log 2>&1", shell=True)
+	os.system('lxterminal -e "/bin/bash -c \'tail -f /tmp/attacker_attack.log\'" > /dev/null 2>&1 &')
 
 	log("attack launched", 'red')
-
-
-def trace_routes(net):
-
-	for src in net.hosts:
-		for dst in net.hosts:
-			if src.name != dst.name and src.name != ATTACKER_NAME and dst.name != ATTACKER_NAME:
-				os.system('./traceroute.sh %s %s > /tmp/traceroute_%s_%s 2>&1 &' % (src.name, dst.name, src.name, dst.name))
 
 
 def main():
 	os.system("rm -f /tmp/R*.log /tmp/ospf-R*.pid /tmp/zebra-R*.pid 2> /dev/null")
 	os.system("rm -r logs/*stdout 2> /dev/null")
-	os.system("rm -r /tmp/*_tcpdump.cap /tmp/*_tcpdump.log /tmp/traceroute_* 2> /dev/null")
+	os.system("rm -r /tmp/*_tcpdump.cap 2> /dev/null")
 	os.system("mn -c > /dev/null 2>&1")
 	os.system("killall -9 zebra ospfd > /dev/null 2>&1")
 	os.system('pgrep -f webserver.py | xargs kill -9')
@@ -174,17 +170,15 @@ def main():
 	# CONFIGURING HOSTS
 	for host in net.hosts:
 		host.cmd("ifconfig %s-eth0 %s" % (host.name, getIP(host.name)))
-		host.cmd("route add default gw %s" % (getGateway(host.name)))
-
-		#host.setIP(getIP(host.name))
-		#host.setDefaultRoute(getGateway(host.name))
-
 		host.cmd("tcpdump -i %s-eth0 -w /tmp/%s_tcpdump.cap &" % (host.name, host.name))
 
 		if host.name == ATTACKER_NAME:
+			host.cmd("ifconfig %s-eth1 %s" % (host.name, '10.0.7.66/24'))
 			attacker_host = host
 			continue
 		else:
+			host.cmd("route add default gw %s" % (getGateway(host.name)))
+
 			log("Starting web server on %s" % host.name, 'yellow')
 			startWebserver(net, host.name, "Web server on %s" % host.name)
 
@@ -205,10 +199,10 @@ def main():
 			router.waitOutput()
 			log("Starting zebra and ospfd on %s" % router.name)
 
-			router.cmd("tcpdump -i %s-eth1 -w /tmp/%s-eth1_tcpdump.cap 2>&1 > /tmp/%s-eth1_tcpdump.log &" % (router.name, router.name, router.name))
-			router.cmd("tcpdump -i %s-eth2 -w /tmp/%s-eth2_tcpdump.cap 2>&1 > /tmp/%s-eth2_tcpdump.log &" % (router.name, router.name, router.name))
-			router.cmd("tcpdump -i %s-eth3 -w /tmp/%s-eth3_tcpdump.cap 2>&1 > /tmp/%s-eth3_tcpdump.log &" % (router.name, router.name, router.name))
-			router.cmd("tcpdump -i %s-eth4 -w /tmp/%s-eth4_tcpdump.cap 2>&1 > /tmp/%s-eth4_tcpdump.log &" % (router.name, router.name, router.name))
+			router.cmd("tcpdump -i %s-eth1 -w /tmp/%s-eth1_tcpdump.cap &" % (router.name, router.name))
+			router.cmd("tcpdump -i %s-eth2 -w /tmp/%s-eth2_tcpdump.cap &" % (router.name, router.name))
+			router.cmd("tcpdump -i %s-eth3 -w /tmp/%s-eth3_tcpdump.cap &" % (router.name, router.name))
+			router.cmd("tcpdump -i %s-eth4 -w /tmp/%s-eth4_tcpdump.cap &" % (router.name, router.name))
 	
 	#"""
 	log("Waiting for OSPF convergence (estimated %s)..." % \
@@ -216,19 +210,18 @@ def main():
 	sleep(OSPF_CONVERGENCE_TIME)
 	#"""
 
-	#launch_attack(attacker_host)
-
-	#trace_routes(net)
-
-	os.system("./ping.sh")
+	if ATTACK == 1:
+		launch_attack(attacker_host)
 	
 	#"""
 	log("Collecting data for %s seconds (estimated %s)..." % \
 		(CAPTURING_WINDOW, (datetime.datetime.now()+datetime.timedelta(0,CAPTURING_WINDOW)).strftime("%H:%M:%S")), 'cyan')
 	sleep(CAPTURING_WINDOW)
 	#"""
-	
-	CLI(net)
+
+	if COMMAND_LINE_INTERFACE == 1:
+		CLI(net)
+
 	net.stop()
 
 	os.system("killall -9 zebra ospfd")
