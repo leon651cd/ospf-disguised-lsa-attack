@@ -17,14 +17,14 @@ from time import sleep, time
 from multiprocessing import Process
 from argparse import ArgumentParser
 
-ROUTERS = 12
-ATTACK = 1
+ROUTERS = 11
+ATTACK = 0
 COMMAND_LINE_INTERFACE = 1
-OSPF_CONVERGENCE_TIME = 60 * 0
-CAPTURING_WINDOW = 30 * 3
+OSPF_CONVERGENCE_TIME = 30 * 1
+CAPTURING_WINDOW = 30 * 0
 
 SWITCH_NAME = 'switch'
-ATTACKER_NAME = 'atk1'
+ATTACKER_ROUTER_NAME = 'R666'
 
 setLogLevel('info')
 #setLogLevel('debug')
@@ -77,20 +77,22 @@ class SimpleTopo(Topo):
 			router = self.addSwitch('R%d' % (i+1))
 			routers.append(router)
 
+		router = self.addSwitch(ATTACKER_ROUTER_NAME)
+		routers.append(router)
+
 		hosts = []
 		for i in xrange(5):
 			host = self.addNode('h%d-1' % (i+1))
 			hosts.append(host)
-
-		host = self.addNode(ATTACKER_NAME)
-		hosts.append(host)
 		
 		# adding links between routers
 		self.addLink('R1', 'R10')
+		self.addLink('R10', 'R11')
 		self.addLink('R11', 'R6')
-		self.addLink('R12', 'R6')
-		self.addLink('R7', 'R2')
+		self.addLink('R10', ATTACKER_ROUTER_NAME)
+		self.addLink(ATTACKER_ROUTER_NAME, 'R6')
 		self.addLink('R6', 'R7')
+		self.addLink('R7', 'R2')
 		self.addLink('R6', 'R8')
 		self.addLink('R7', 'R4')
 		self.addLink('R4', 'R8')
@@ -103,26 +105,11 @@ class SimpleTopo(Topo):
 			self.addSwitch(switch_name, cls=OVSSwitch)
 			self.addLink(switch_name, 'R%d' % (i+1))
 			self.addLink(switch_name, 'h%d-1' % (i+1))
-
-		switch_name = SWITCH_NAME + '10'
-		self.addSwitch(switch_name, cls=OVSSwitch)
-		self.addLink(switch_name, 'R10')
-		self.addLink(switch_name, 'R12')
-		self.addLink(switch_name, ATTACKER_NAME)
-
-		switch_name = SWITCH_NAME + '7'
-		self.addSwitch(switch_name, cls=OVSSwitch)
-		self.addLink(switch_name, 'R10')
-		self.addLink(switch_name, 'R11')
-		self.addLink(switch_name, ATTACKER_NAME)
 		
 		return
 
 
 def getIP(hostname):
-	if hostname == ATTACKER_NAME:
-		return '10.0.10.66/24'
-
 	subnet, idx = hostname.replace('h', '').split('-')
 
 	ip = '10.0.%s.%s/24' % (subnet, idx)
@@ -143,11 +130,11 @@ def startWebserver(net, hostname, text="Default web server"):
 	return host.popen("python webserver.py --text '%s'" % text, shell=True)
 
 
-def launch_attack(attacker_host):
+def launch_attack():
 	log("launching attack", 'red')
 
-	attacker_host.popen("python attacker_attack.py > /tmp/attacker_attack.log 2>&1", shell=True)
-	os.system('lxterminal -e "/bin/bash -c \'tail -f /tmp/attacker_attack.log\'" > /dev/null 2>&1 &')
+	#attacker_host.popen("python attacker_attack.py > /tmp/attacker_attack.log 2>&1", shell=True)
+	#os.system('lxterminal -e "/bin/bash -c \'tail -f /tmp/attacker_attack.log\'" > /dev/null 2>&1 &')
 
 	log("attack launched", 'red')
 
@@ -165,22 +152,15 @@ def main():
 	net = Mininet(topo=SimpleTopo(), switch=Router)
 	net.start()
 
-	attacker_host = None
-
 	# CONFIGURING HOSTS
 	for host in net.hosts:
 		host.cmd("ifconfig %s-eth0 %s" % (host.name, getIP(host.name)))
-		host.cmd("tcpdump -i %s-eth0 -w /tmp/%s_tcpdump.cap &" % (host.name, host.name))
+		host.cmd("route add default gw %s" % (getGateway(host.name)))
 
-		if host.name == ATTACKER_NAME:
-			host.cmd("ifconfig %s-eth1 %s" % (host.name, '10.0.7.66/24'))
-			attacker_host = host
-			continue
-		else:
-			host.cmd("route add default gw %s" % (getGateway(host.name)))
+		host.cmd("tcpdump -i %s-eth0 -w /tmp/%s-eth0_tcpdump.cap &" % (host.name, host.name))
 
-			log("Starting web server on %s" % host.name, 'yellow')
-			startWebserver(net, host.name, "Web server on %s" % host.name)
+		log("Starting web server on %s" % host.name, 'yellow')
+		startWebserver(net, host.name, "Web server on %s" % host.name)
 
 	# CONFIGURING ROUTERS
 	for router in net.switches:
@@ -210,8 +190,7 @@ def main():
 	sleep(OSPF_CONVERGENCE_TIME)
 	#"""
 
-	if ATTACK == 1:
-		launch_attack(attacker_host)
+	# TODO launch attack
 	
 	#"""
 	log("Collecting data for %s seconds (estimated %s)..." % \
