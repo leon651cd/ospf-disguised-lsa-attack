@@ -17,10 +17,11 @@ from time import sleep, time
 from multiprocessing import Process
 from argparse import ArgumentParser
 
+
 ROUTERS = 11
 ATTACK = 0
 COMMAND_LINE_INTERFACE = 1
-OSPF_CONVERGENCE_TIME = 30 * 1
+OSPF_CONVERGENCE_TIME = 30 * 0
 CAPTURING_WINDOW = 30 * 0
 
 SWITCH_NAME = 'switch'
@@ -69,6 +70,27 @@ class SimpleTopo(Topo):
 	def __init__(self):
 		# Add default members to class.
 		super(SimpleTopo, self ).__init__()
+
+
+		"""
+		routers = []
+		for i in [3, 4]:
+			router = self.addSwitch('R%d' % (i))
+			routers.append(router)
+
+		hosts = []
+		for i in [3, 4]:
+			host = self.addNode('h%d-1' % (i))
+			hosts.append(host)
+
+		self.addLink('R3', 'R4')
+		
+		for i in [3, 4]:
+			switch_name = SWITCH_NAME + str(i)
+			self.addSwitch(switch_name, cls=OVSSwitch)
+			self.addLink(switch_name, 'R%d' % (i))
+			self.addLink(switch_name, 'h%d-1' % (i))
+		"""
 
 		num_routers = ROUTERS
 
@@ -152,7 +174,6 @@ def main():
 	net = Mininet(topo=SimpleTopo(), switch=Router)
 	net.start()
 
-	# CONFIGURING HOSTS
 	for host in net.hosts:
 		host.cmd("ifconfig %s-eth0 %s" % (host.name, getIP(host.name)))
 		host.cmd("route add default gw %s" % (getGateway(host.name)))
@@ -162,7 +183,6 @@ def main():
 		log("Starting web server on %s" % host.name, 'yellow')
 		startWebserver(net, host.name, "Web server on %s" % host.name)
 
-	# CONFIGURING ROUTERS
 	for router in net.switches:
 		if SWITCH_NAME not in router.name:
 			router.cmd("sysctl -w net.ipv4.ip_forward=1")
@@ -173,9 +193,11 @@ def main():
 
 	for router in net.switches:
 		if SWITCH_NAME not in router.name:
-			router.cmd("/usr/lib/quagga/zebra -f conf/zebra-%s.conf -d -i /tmp/zebra-%s.pid > logs/%s-zebra-stdout 2>&1" % (router.name, router.name, router.name))
+			#router.cmd("/usr/lib/quagga/zebra -f conf/zebra-%s.conf -d -i /tmp/zebra-%s.pid > logs/%s-zebra-stdout 2>&1" % (router.name, router.name, router.name))
+			router.cmd("/usr/lib/quagga-1.2.4/zebra/zebra -f conf/zebra-%s.conf -d -i /tmp/zebra-%s.pid > logs/%s-zebra-stdout 2>&1" % (router.name, router.name, router.name))
 			router.waitOutput()
-			router.cmd("/usr/lib/quagga/ospfd -f conf/ospfd-%s.conf -d -i /tmp/ospf-%s.pid > logs/%s-ospfd-stdout 2>&1" % (router.name, router.name, router.name), shell=True)
+			#router.cmd("/usr/lib/quagga/ospfd -f conf/ospfd-%s.conf -d -i /tmp/ospf-%s.pid > logs/%s-ospfd-stdout 2>&1" % (router.name, router.name, router.name), shell=True)
+			router.cmd("/usr/lib/quagga-1.2.4/ospfd/ospfd -f conf/ospfd-%s.conf -d -i /tmp/ospf-%s.pid > logs/%s-ospfd-stdout 2>&1" % (router.name, router.name, router.name), shell=True)
 			router.waitOutput()
 			log("Starting zebra and ospfd on %s" % router.name)
 
@@ -185,8 +207,8 @@ def main():
 			router.cmd("tcpdump -i %s-eth4 -w /tmp/%s-eth4_tcpdump.cap &" % (router.name, router.name))
 	
 	#"""
-	log("Waiting for OSPF convergence (estimated %s)..." % \
-		((datetime.datetime.now()+datetime.timedelta(0,OSPF_CONVERGENCE_TIME)).strftime("%H:%M:%S")), 'cyan')
+	log("Waiting for OSPF convergence for %s seconds (estimated %s)..." % \
+		(OSPF_CONVERGENCE_TIME, (datetime.datetime.now()+datetime.timedelta(0,OSPF_CONVERGENCE_TIME)).strftime("%H:%M:%S")), 'cyan')
 	sleep(OSPF_CONVERGENCE_TIME)
 	#"""
 
@@ -203,7 +225,7 @@ def main():
 
 	net.stop()
 
-	os.system("killall -9 zebra ospfd")
+	os.system("killall -9 zebra ospfd > /dev/null 2>&1")
 	os.system('pgrep -f webserver.py | xargs kill -9')
 
 

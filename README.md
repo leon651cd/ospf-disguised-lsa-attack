@@ -2,6 +2,16 @@
 
 Code based on this [paper](theory.stanford.edu/~dabo/papers/ospf.pdf)
 
-<!--
-**Status**: router R4 not forwarding hello packet (ip.src=10.0.1.3, ip.dst=10.0.1.2) sent from attacker (10.0.4.66)
--->
+---
+
+Download quagga-1.2.4.tar.gz from http://download.savannah.gnu.org/releases/quagga/
+
+Unpack quagga-1.2.4.tar.gz and move directory quagga-1.2.4 in /usr/lib
+
+In directory quagga-1.2.4 run:
+
+```
+$ ./configure
+$ make
+# make install
+```
