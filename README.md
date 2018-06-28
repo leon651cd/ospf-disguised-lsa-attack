@@ -4,14 +4,11 @@ Code based on this [paper](theory.stanford.edu/~dabo/papers/ospf.pdf)
 
 ---
 
-Download quagga-1.2.4.tar.gz from http://download.savannah.gnu.org/releases/quagga/
-
-Unpack quagga-1.2.4.tar.gz and move directory quagga-1.2.4 in /usr/lib
-
-In directory quagga-1.2.4 run:
+quagga-1.2.4 downloaded from http://download.savannah.gnu.org/releases/quagga/
 
 ```
+$ tar -xzvf quagga-1.2.4.tar.gz
+$ cd quagga-1.2.4
 $ ./configure
 $ make
-# make install
 ```
