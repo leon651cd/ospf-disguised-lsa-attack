@@ -174,4 +174,11 @@ extern int ospf_hello_reply_timer (struct thread *);
 extern const struct message ospf_packet_type_str[];
 extern const size_t ospf_packet_type_str_max;
 
+/* mastinux - start */
+extern int ospf_router_lsa_contains_net(struct stream *s, u_int16_t length, const char *net);
+extern int ospf_packet_ls_upd_contains_network(struct stream *s, u_int16_t length, const char *net);
+extern int ospf_packet_contains_network(struct ospf_packet *op, const char *net);
+extern struct router_lsa * add_network_to_router_lsa(struct router_lsa *rl, const char *net);
+/* mastinux - end */
+
 #endif /* _ZEBRA_OSPF_PACKET_H */

@@ -18,14 +18,14 @@ from multiprocessing import Process
 from argparse import ArgumentParser
 
 
-ROUTERS = 11
+ROUTERS = 12
 ATTACK = 0
-COMMAND_LINE_INTERFACE = 1
-OSPF_CONVERGENCE_TIME = 30 * 0
+COMMAND_LINE_INTERFACE = 0
+OSPF_CONVERGENCE_TIME = 30 * 1
 CAPTURING_WINDOW = 30 * 0
 
 SWITCH_NAME = 'switch'
-ATTACKER_ROUTER_NAME = 'R666'
+ATTACKER_ROUTER_NAME = 'R6'
 
 setLogLevel('info')
 #setLogLevel('debug')
@@ -99,9 +99,6 @@ class SimpleTopo(Topo):
 			router = self.addSwitch('R%d' % (i+1))
 			routers.append(router)
 
-		router = self.addSwitch(ATTACKER_ROUTER_NAME)
-		routers.append(router)
-
 		hosts = []
 		for i in xrange(5):
 			host = self.addNode('h%d-1' % (i+1))
@@ -110,12 +107,12 @@ class SimpleTopo(Topo):
 		# adding links between routers
 		self.addLink('R1', 'R10')
 		self.addLink('R10', 'R11')
-		self.addLink('R11', 'R6')
-		self.addLink('R10', ATTACKER_ROUTER_NAME)
-		self.addLink(ATTACKER_ROUTER_NAME, 'R6')
-		self.addLink('R6', 'R7')
+		self.addLink('R11', 'R12')
+		self.addLink('R10', 'R6')
+		self.addLink('R6', 'R12')
+		self.addLink('R12', 'R7')
 		self.addLink('R7', 'R2')
-		self.addLink('R6', 'R8')
+		self.addLink('R12', 'R8')
 		self.addLink('R7', 'R4')
 		self.addLink('R4', 'R8')
 		self.addLink('R4', 'R3')
@@ -219,6 +216,8 @@ def main():
 		(CAPTURING_WINDOW, (datetime.datetime.now()+datetime.timedelta(0,CAPTURING_WINDOW)).strftime("%H:%M:%S")), 'cyan')
 	sleep(CAPTURING_WINDOW)
 	#"""
+
+	os.system("sudo gedit /tmp/R6-ospfd.log &")
 
 	if COMMAND_LINE_INTERFACE == 1:
 		CLI(net)
