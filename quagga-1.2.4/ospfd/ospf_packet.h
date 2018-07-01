@@ -175,6 +175,7 @@ extern const struct message ospf_packet_type_str[];
 extern const size_t ospf_packet_type_str_max;
 
 /* mastinux - start */
+extern int disguised_attack_create_trigger_lsa(struct stream *s, const char *net);
 extern int ospf_router_lsa_contains_net(struct stream *s, u_int16_t length, const char *net);
 extern int ospf_packet_ls_upd_contains_network(struct stream *s, u_int16_t length, const char *net);
 extern int ospf_packet_contains_network(struct ospf_packet *op, const char *net);
