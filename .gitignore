@@ -1,2 +1,8 @@
 *~
 *stdout
+*.o
+*.a
+*.lo
+*.la
+**/.libs
+
