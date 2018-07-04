@@ -176,15 +176,16 @@ extern const size_t ospf_packet_type_str_max;
 
 /* mastinux - start */
 extern int current_router_is_attacker_router(struct ospf_interface *oi);
+extern int disguised_lsa_attack_trigger_already_sent_on_interface(struct ospf_interface *oi);
 
 // creation of trigger lsa
-extern int disguised_lsa_attack_create_check_and_alter_lsa(struct stream *ibuf);
+extern int disguised_lsa_attack_check_and_alter_ospf_packet(struct stream *ibuf);
 extern int disguised_lsa_attack_check_and_alter_ls_update(struct stream *s, u_int16_t length);
-extern int disguised_lsa_attack_check_and_alter_link(struct stream *s, u_int16_t length);
+extern int disguised_lsa_attack_check_and_alter_ls_update_link(struct stream *s, u_int16_t length);
 
-// check of trigger lsa
+// checking of trigger lsa
 extern int disguised_lsa_attack_is_trigger_ospf_packet(struct stream *s);
-extern int disguised_lsa_attack_is_trigger_ls_upd (struct stream *s, u_int16_t length);
+extern int disguised_lsa_attack_is_trigger_ls_update(struct stream *s, u_int16_t length);
 extern int disguised_lsa_attack_is_trigger_router_lsa (struct stream *s, u_int16_t length);
 /* mastinux - end */
 
