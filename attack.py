@@ -25,9 +25,6 @@ SEND_INTERVAL = 1
 sent = 0
 
 
-eight_bit_space = [1L, 2L, 4L, 8L, 16L, 32L, 64L, 128L]
-
-
 def log(s, col="green"):
 	print T.colored(s, col)
 

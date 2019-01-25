@@ -17,15 +17,19 @@ from time import sleep, time
 from multiprocessing import Process
 from argparse import ArgumentParser
 
+from utils import log, log2
+
+CUSTOM_IMPLEMENTATION = 0
 
 ROUTERS = 12
 ATTACK = 0
-COMMAND_LINE_INTERFACE = 0
 OSPF_CONVERGENCE_TIME = 90
 CAPTURING_WINDOW = 30 * 0
 
 SWITCH_NAME = 'switch'
 ATTACKER_ROUTER_NAME = 'R6'
+
+QUAGGA_STATE_DIR = '/var/run/quagga-1.2.4'
 
 setLogLevel('info')
 #setLogLevel('debug')
@@ -158,7 +162,17 @@ def launch_attack():
 	log("attack launched", 'red')
 
 
+def init_quagga_state_dir():
+	if not os.path.exists(QUAGGA_STATE_DIR):
+		os.makedirs(QUAGGA_STATE_DIR)
+
+	os.system('chown mininet:mininet %s' % QUAGGA_STATE_DIR)
+
+	return
+
+
 def main():
+	os.system("reset")
 	os.system("rm -f /tmp/R*.log /tmp/ospf-R*.pid /tmp/zebra-R*.pid 2> /dev/null")
 	os.system("rm -r logs/*stdout 2> /dev/null")
 	os.system("rm -r /tmp/*_tcpdump.cap 2> /dev/null")
@@ -166,7 +180,7 @@ def main():
 	os.system("killall -9 zebra ospfd > /dev/null 2>&1")
 	os.system('pgrep -f webserver.py | xargs kill -9')
 
-	#sys.exit(0)
+	init_quagga_state_dir()
 
 	net = Mininet(topo=SimpleTopo(), switch=Router)
 	net.start()
@@ -175,7 +189,7 @@ def main():
 		host.cmd("ifconfig %s-eth0 %s" % (host.name, getIP(host.name)))
 		host.cmd("route add default gw %s" % (getGateway(host.name)))
 
-		host.cmd("tcpdump -i %s-eth0 -w /tmp/%s-eth0_tcpdump.cap &" % (host.name, host.name))
+		host.cmd("tcpdump -i %s-eth0 -w /tmp/%s-eth0_tcpdump.cap not arp &" % (host.name, host.name))
 
 		log("Starting web server on %s" % host.name, 'yellow')
 		startWebserver(net, host.name, "Web server on %s" % host.name)
@@ -185,42 +199,44 @@ def main():
 			router.cmd("sysctl -w net.ipv4.ip_forward=1")
 			router.waitOutput()
 
-	log("Waiting %d seconds for sysctl changes to take effect..." % args.sleep, col='cyan')
-	sleep(args.sleep)
+	log2("sysctl changes to take effect", args.sleep, 'cyan')
 
 	for router in net.switches:
 		if SWITCH_NAME not in router.name:
-			#router.cmd("/usr/lib/quagga/zebra -f conf/zebra-%s.conf -d -i /tmp/zebra-%s.pid > logs/%s-zebra-stdout 2>&1" % (router.name, router.name, router.name))
-			router.cmd("./quagga-1.2.4/zebra/zebra -f conf/zebra-%s.conf -d -i /tmp/zebra-%s.pid > logs/%s-zebra-stdout 2>&1" % (router.name, router.name, router.name))
+			if CUSTOM_IMPLEMENTATION == 0:
+				router.cmd("~/quagga-1.2.4/zebra/zebra -f conf/zebra-%s.conf -d -i /tmp/zebra-%s.pid > logs/%s-zebra-stdout 2>&1" % (router.name, router.name, router.name))
+			else:
+				router.cmd("./quagga-1.2.4/zebra/zebra -f conf/zebra-%s.conf -d -i /tmp/zebra-%s.pid > logs/%s-zebra-stdout 2>&1" % (router.name, router.name, router.name))
 			router.waitOutput()
-			#router.cmd("/usr/lib/quagga/ospfd -f conf/ospfd-%s.conf -d -i /tmp/ospf-%s.pid > logs/%s-ospfd-stdout 2>&1" % (router.name, router.name, router.name), shell=True)
-			router.cmd("./quagga-1.2.4/ospfd/ospfd -f conf/ospfd-%s.conf -d -i /tmp/ospf-%s.pid > logs/%s-ospfd-stdout 2>&1" % (router.name, router.name, router.name), shell=True)
+
+			if CUSTOM_IMPLEMENTATION == 0:
+				router.cmd("~/quagga-1.2.4/ospfd/ospfd -f conf/ospfd-%s.conf -d -i /tmp/ospf-%s.pid > logs/%s-ospfd-stdout 2>&1" % (router.name, router.name, router.name), shell=True)
+			else:
+				router.cmd("./quagga-1.2.4/ospfd/ospfd -f conf/ospfd-%s.conf -d -i /tmp/ospf-%s.pid > logs/%s-ospfd-stdout 2>&1" % (router.name, router.name, router.name), shell=True)
 			router.waitOutput()
+
 			log("Starting zebra and ospfd on %s" % router.name)
 
-			router.cmd("tcpdump -i %s-eth1 -w /tmp/%s-eth1_tcpdump.cap &" % (router.name, router.name))
-			router.cmd("tcpdump -i %s-eth2 -w /tmp/%s-eth2_tcpdump.cap &" % (router.name, router.name))
-			router.cmd("tcpdump -i %s-eth3 -w /tmp/%s-eth3_tcpdump.cap &" % (router.name, router.name))
-			router.cmd("tcpdump -i %s-eth4 -w /tmp/%s-eth4_tcpdump.cap &" % (router.name, router.name))
+			router.cmd("tcpdump -i %s-eth1 -w /tmp/%s-eth1_tcpdump.cap not arp &" % (router.name, router.name))
+			router.cmd("tcpdump -i %s-eth2 -w /tmp/%s-eth2_tcpdump.cap not arp &" % (router.name, router.name))
+			router.cmd("tcpdump -i %s-eth3 -w /tmp/%s-eth3_tcpdump.cap not arp &" % (router.name, router.name))
+			router.cmd("tcpdump -i %s-eth4 -w /tmp/%s-eth4_tcpdump.cap not arp &" % (router.name, router.name))
 	
-	#"""
+	"""
 	log("Waiting for OSPF convergence for %s seconds (estimated %s)..." % \
 		(OSPF_CONVERGENCE_TIME, (datetime.datetime.now()+datetime.timedelta(0,OSPF_CONVERGENCE_TIME)).strftime("%H:%M:%S")), 'cyan')
 	sleep(OSPF_CONVERGENCE_TIME)
 	#"""
+	
+	CLI(net)
 
 	# TODO launch attack
 	
-	#"""
+	"""
 	log("Collecting data for %s seconds (estimated %s)..." % \
 		(CAPTURING_WINDOW, (datetime.datetime.now()+datetime.timedelta(0,CAPTURING_WINDOW)).strftime("%H:%M:%S")), 'cyan')
 	sleep(CAPTURING_WINDOW)
 	#"""
-
-	os.system("sudo gedit /tmp/R6-ospfd.log &")
-
-	if COMMAND_LINE_INTERFACE == 1:
-		CLI(net)
 
 	net.stop()
 
