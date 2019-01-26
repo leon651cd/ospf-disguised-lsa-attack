@@ -23,8 +23,8 @@ CUSTOM_IMPLEMENTATION = 0
 
 ROUTERS = 12
 ATTACK = 0
-OSPF_CONVERGENCE_TIME = 90
-CAPTURING_WINDOW = 30 * 0
+OSPF_CONVERGENCE_TIME = 60
+CAPTURING_WINDOW = 30 * 3
 
 SWITCH_NAME = 'switch'
 ATTACKER_ROUTER_NAME = 'R6'
@@ -153,11 +153,22 @@ def startWebserver(net, hostname, text="Default web server"):
 	return host.popen("python webserver.py --text '%s'" % text, shell=True)
 
 
-def launch_attack():
+def launch_attack(attacker_router):
 	log("launching attack", 'red')
 
-	#attacker_host.popen("python attacker_attack.py > /tmp/attacker_attack.log 2>&1", shell=True)
-	#os.system('lxterminal -e "/bin/bash -c \'tail -f /tmp/attacker_attack.log\'" > /dev/null 2>&1 &')
+	src_mac_address = None
+
+	# retrieving src and dst mac address
+	for i in attacker_router.intfList():
+		if i.name == 'R6-eth2':
+			src_mac_address = i.MAC()
+
+	assert src_mac_address is not None
+
+	attacker_router.popen("python attack.py %s > /tmp/attack.out 2> /tmp/attack.err &" % src_mac_address, shell=True)
+
+	os.system('lxterminal -e "/bin/bash -c \'tail -f /tmp/attack.out\'" > /dev/null 2>&1 &')
+	os.system('lxterminal -e "/bin/bash -c \'tail -f /tmp/attack.err\'" > /dev/null 2>&1 &')
 
 	log("attack launched", 'red')
 
@@ -184,6 +195,8 @@ def main():
 
 	net = Mininet(topo=SimpleTopo(), switch=Router)
 	net.start()
+
+	attacker_router = None
 
 	for host in net.hosts:
 		host.cmd("ifconfig %s-eth0 %s" % (host.name, getIP(host.name)))
@@ -221,24 +234,24 @@ def main():
 			router.cmd("tcpdump -i %s-eth2 -w /tmp/%s-eth2_tcpdump.cap not arp &" % (router.name, router.name))
 			router.cmd("tcpdump -i %s-eth3 -w /tmp/%s-eth3_tcpdump.cap not arp &" % (router.name, router.name))
 			router.cmd("tcpdump -i %s-eth4 -w /tmp/%s-eth4_tcpdump.cap not arp &" % (router.name, router.name))
-	
-	"""
-	log("Waiting for OSPF convergence for %s seconds (estimated %s)..." % \
-		(OSPF_CONVERGENCE_TIME, (datetime.datetime.now()+datetime.timedelta(0,OSPF_CONVERGENCE_TIME)).strftime("%H:%M:%S")), 'cyan')
-	sleep(OSPF_CONVERGENCE_TIME)
-	#"""
-	
-	CLI(net)
 
-	# TODO launch attack
-	
-	"""
-	log("Collecting data for %s seconds (estimated %s)..." % \
-		(CAPTURING_WINDOW, (datetime.datetime.now()+datetime.timedelta(0,CAPTURING_WINDOW)).strftime("%H:%M:%S")), 'cyan')
-	sleep(CAPTURING_WINDOW)
-	#"""
+			if router.name == ATTACKER_ROUTER_NAME:
+				attacker_router = router
 
+	assert attacker_router is not None
+	
+	#log2('OSPF convergence', OSPF_CONVERGENCE_TIME, 'cyan')
+	
+	#CLI(net)
+	#raw_input('Press ENTER to launch attack ...')
+	launch_attack(attacker_router)
+	#raw_input('Press ENTER to exit ...')
+	
+	log2('collecting data', CAPTURING_WINDOW, 'cyan')
+	
 	net.stop()
+
+	os.system('sudo wireshark /tmp/R6-eth2_tcpdump.cap -Y \'not ipv6\' 2>/dev/null &')
 
 	os.system("killall -9 zebra ospfd > /dev/null 2>&1")
 	os.system('pgrep -f webserver.py | xargs kill -9')
